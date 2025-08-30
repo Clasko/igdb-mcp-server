@@ -1,0 +1,17 @@
+[project]
+name = "igdb-mcp-server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "bielacki", email = "michael.belyatsky@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+igdb-mcp-server = "igdb_mcp_server.server:run_server"
+
+[build-system]
+requires = ["uv_build>=0.8.12,<0.9.0"]
+build-backend = "uv_build"
