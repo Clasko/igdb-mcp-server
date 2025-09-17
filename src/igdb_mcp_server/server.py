@@ -6,16 +6,40 @@ information about games, platforms, companies, and more.
 """
 
 import os
-import json
-import asyncio
-from typing import Optional, Dict, Any, List, Annotated
-from pydantic import Field
-from datetime import datetime, timedelta
+import time
 import httpx
+from pydantic import Field
 from fastmcp import FastMCP
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Annotated
 
 # Initialize the FastMCP server
-mcp = FastMCP("IGDB API Server")
+mcp = FastMCP(
+    "IGDB API Server",
+    instructions="""
+    IGDB API Integration Best Practices:
+
+    QUERY OPTIMIZATION:
+    • Use nested fields to reduce API calls (e.g., platforms.name, cover.url, involved_companies.company.name)
+    • Leverage multiquery endpoint for batch operations instead of sequential calls
+    • For counts/aggregations, use dedicated endpoints (games/count) rather than fetching all records
+
+    SEARCH & FILTERING:
+    • Use 'search' for text queries, 'where' for exact filtering
+    • Combine conditions efficiently: use & (AND), | (OR) operators
+    • Check for null values when filtering ratings or dates to avoid missing data
+
+    RESPONSE HANDLING:
+    • Always validate results exist before accessing properties
+    • Handle missing/null fields gracefully in responses
+    • Consider pagination limits (max 500 per request) for large result sets
+
+    PERFORMANCE TIPS:
+    • Batch related queries using multiquery when fetching connected data
+    • Use field expansion wisely - deeply nested fields increase response time
+    • For time-based queries, use Unix timestamps for precise filtering
+    """,
+)
 
 # Configuration
 IGDB_BASE_URL = "https://api.igdb.com/v4"
@@ -76,7 +100,10 @@ class IGDBClient:
         )
         response.raise_for_status()
 
-        return response.json()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return [data]
 
     async def close(self):
         """Close the HTTP client."""
@@ -94,8 +121,8 @@ def get_igdb_client() -> IGDBClient:
 
         if not client_id or not client_secret:
             raise ValueError(
-                "IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables must be set. "
-                "Get these from https://api-docs.igdb.com/#account-creation"
+                "Please set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables. "
+                "You can obtain these from https://api-docs.igdb.com/#account-creation"
             )
 
         _igdb_client = IGDBClient(client_id, client_secret)
@@ -108,7 +135,7 @@ async def search_games(
     query: Annotated[str, Field(description="Search term for finding games")],
     fields: Annotated[
         str, Field(description="Comma-separated list of fields to return")
-    ] = "name,summary,rating,first_release_date,platforms.name,cover.url",
+    ] = "name,rating,rating_count,first_release_date,platforms.name",
     limit: Annotated[
         int, Field(description="Maximum number of results to return", ge=1, le=500)
     ] = 10,
@@ -126,73 +153,8 @@ async def search_games(
     """
     igdb_client = get_igdb_client()
 
-    if limit > 500:
-        limit = 500
-
     search_query = f'search "{query}"; fields {fields}; limit {limit};'
     return await igdb_client.make_request("games", search_query)
-
-
-@mcp.tool()
-async def search_companies(
-    name: Annotated[str, Field(description="Company name to search for")],
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,description,country,websites.url,logo.url",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 10,
-) -> List[Dict[str, Any]]:
-    """
-    Search for game companies (publishers/developers).
-
-    Args:
-        name: Company name to search for
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 10, max: 500)
-
-    Returns:
-        List of companies matching the search criteria
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    query = f'search "{name}"; fields {fields}; limit {limit};'
-    return await igdb_client.make_request("companies", query)
-
-
-@mcp.tool()
-async def search_characters(
-    name: Annotated[str, Field(description="Character name to search for")],
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,description,games.name,gender,species",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 10,
-) -> List[Dict[str, Any]]:
-    """
-    Search for video game characters.
-
-    Args:
-        name: Character name to search for
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 10, max: 500)
-
-    Returns:
-        List of characters matching the search criteria
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    query = f'search "{name}"; fields {fields}; limit {limit};'
-    return await igdb_client.make_request("characters", query)
 
 
 @mcp.tool()
@@ -200,10 +162,8 @@ async def get_game_details(
     game_id: Annotated[int, Field(description="The IGDB ID of the game")],
     fields: Annotated[
         Optional[str],
-        Field(
-            description="Comma-separated list of fields to return (default: all fields)"
-        ),
-    ] = "*",
+        Field(description="Comma-separated list of fields to return"),
+    ] = "id,slug,name,rating,rating_count,hypes,first_release_date,platforms.name,genres.name,status,cover.url,summary,involved_companies.company.name,involved_companies.developer,involved_companies.publisher",
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific game.
@@ -221,165 +181,52 @@ async def get_game_details(
     results = await igdb_client.make_request("games", query)
 
     if not results:
-        raise ValueError(f"Game with ID {game_id} not found")
+        raise ValueError(f"No game found with ID {game_id}")
 
     return results[0]
 
 
 @mcp.tool()
-async def get_platforms(
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,abbreviation,generation,category,summary",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 50,
-) -> List[Dict[str, Any]]:
-    """
-    Get list of gaming platforms.
-
-    Args:
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 50, max: 500)
-
-    Returns:
-        List of gaming platforms
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    query = f"fields {fields}; limit {limit}; sort name asc;"
-    return await igdb_client.make_request("platforms", query)
-
-
-@mcp.tool()
-async def get_genres(
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,slug,url",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 50,
-) -> List[Dict[str, Any]]:
-    """
-    Get list of game genres.
-
-    Args:
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 50, max: 500)
-
-    Returns:
-        List of game genres
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    query = f"fields {fields}; limit {limit}; sort name asc;"
-    return await igdb_client.make_request("genres", query)
-
-
-@mcp.tool()
-async def get_game_modes(
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,slug,url",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 50,
-) -> List[Dict[str, Any]]:
-    """
-    Get list of game modes (single-player, multiplayer, etc.).
-
-    Args:
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 50, max: 500)
-
-    Returns:
-        List of game modes
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    query = f"fields {fields}; limit {limit}; sort name asc;"
-    return await igdb_client.make_request("game_modes", query)
-
-
-@mcp.tool()
-async def get_popular_games(
-    fields: Annotated[
-        Optional[str],
-        Field(description="Comma-separated list of fields to return"),
-    ] = "name,summary,rating,rating_count,total_rating,total_rating_count,follows",
-    limit: Annotated[
-        int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 20,
-) -> List[Dict[str, Any]]:
-    """
-    Get currently popular/trending games.
-
-    Args:
-        fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 20, max: 500)
-
-    Returns:
-        List of popular games
-    """
-    igdb_client = get_igdb_client()
-
-    if limit > 500:
-        limit = 500
-
-    # Get games with high ratings and follows
-    query = f"fields {fields}; where rating_count > 50; sort total_rating desc; limit {limit};"
-
-    return await igdb_client.make_request("games", query)
-
-
-@mcp.tool()
-async def get_popularity_data(
-    game_id: Annotated[
-        Optional[int],
-        Field(description="Optional game ID to get popularity data for a specific game"),
-    ] = None,
+async def get_most_anticipated_games(
     fields: Annotated[
         str,
         Field(description="Comma-separated list of fields to return"),
-    ] = "game_id,value,popularity_type",
+    ] = "id,slug,name,hypes,first_release_date,platforms.name,genres.name,status",
     limit: Annotated[
         int, Field(description="Maximum number of results to return", ge=1, le=500)
-    ] = 20,
+    ] = 25,
+    min_hypes: Annotated[
+        int, Field(description="Minimum number of hypes required", ge=0)
+    ] = 25,
 ) -> List[Dict[str, Any]]:
     """
-    Get list of popularity primitives (relative values), like 'Want to Play', 'IGDB Visits', etc.
+    Get the most anticipated upcoming games based on hype count.
+    Automatically filters for future or TBA releases.
 
     Args:
-        game_id: Optional game ID to get popularity data for a specific game
         fields: Comma-separated list of fields to return
-        limit: Maximum number of results to return (default: 20, max: 500)
+        limit: Maximum number of results to return (default: 25, max: 500)
+        min_hypes: Minimum number of hypes required (default: 25)
 
     Returns:
-        List of popularity primitives
+        List of most anticipated games sorted by hype count
     """
     igdb_client = get_igdb_client()
 
-    if limit > 500:
-        limit = 500
+    # Get current timestamp
+    current_timestamp = int(time.time())
 
-    if game_id:
-        query = f"fields {fields}; where game_id = {game_id}; sort value desc; limit {limit};"
-    else:
-        query = f"fields {fields}; sort value desc; limit {limit};"
-        
-    return await igdb_client.make_request("popularity_primitives", query)
+    # Build query: games with hypes that are either future releases or TBA
+    query = (
+        f"fields {fields}; "
+        f"where hypes >= {min_hypes} & "
+        f"(status = null | status != 0) & "
+        f"(first_release_date > {current_timestamp} | first_release_date = null); "
+        f"sort hypes desc; "
+        f"limit {limit};"
+    )
+
+    return await igdb_client.make_request("games", query)
 
 
 @mcp.tool()
@@ -414,14 +261,13 @@ async def custom_query(
     return await igdb_client.make_request(endpoint, query)
 
 
-# Resources for API documentation
 @mcp.resource("igdb://endpoints")
 async def get_endpoints() -> str:
     """
     Get a list of available IGDB API endpoints and their descriptions.
     """
     return """
-    Available IGDB API Endpoints:
+    Available IGDB endpoints:
     
     - games: Video game information
     - platforms: Gaming platforms (PC, PlayStation, Xbox, etc.)
@@ -449,6 +295,7 @@ async def get_endpoints() -> str:
     - search: Multi-resource search endpoint
     - popularity_primitives: Popularity metrics for games (IGDB Visits, Want to Play, etc.)
     - popularity_types: Types of popularity metrics (Visits, Want to Play, Steam Total Reviews etc.)
+    - multiquery: Execute multiple queries in a single request (The Multi-Query syntax is made up of three pieces: “Endpoint name”, “Result Name (Given by you)”, and the APICalypse query inside the body {})
     
     Use the custom_query tool to access any of these endpoints with custom queries.
     """
@@ -493,7 +340,37 @@ async def get_query_syntax() -> str:
     
     6. Nested fields:
        fields name,cover.url,involved_companies.company.name;
-    
+
+    7. Multi-query for efficient counting and batch operations:
+
+        COUNTING EXAMPLES (Most Efficient):
+        // Single count
+        query games/count "ps4_2018_count" {
+            where release_dates.platform = 48 & release_dates.y = 2018;
+        };
+
+        // Multiple counts in one request
+        query games/count "ps4_games" {
+            where release_dates.platform = 48;
+        };
+        query games/count "xbox_games" {
+            where release_dates.platform = 49;
+        };
+        query games/count "highly_rated" {
+            where rating > 90 & rating_count > 100;
+        };
+
+        // Combining counts with data fetching
+        query games "top_rpgs" {
+            fields name, rating, platforms.name;
+            where genres = 12 & rating != null;
+            sort rating desc;
+            limit 5;
+        };
+        query games/count "total_rpgs" {
+            where genres = 12;
+        };
+            
     Field Operators:
     - = : Equals
     - != : Not equals
@@ -514,6 +391,107 @@ async def get_query_syntax() -> str:
     - () : Array/tuple for multiple values
     - * : All fields (use sparingly)
     """
+
+
+@mcp.prompt()
+def search_game(game_name: str) -> str:
+    """Searches a game by name."""
+    return f"""Search for '{game_name}' and present top 5 results:
+
+1. Use the search_games tool with:
+    - Required fields: name,slug,summary,rating,rating_count,first_release_date,platforms.name,genres.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher
+    - Limit: 5
+
+2. Format each result as:
+
+## 🎮 [Name] ([Year from first_release_date])
+
+[Link](https://www.igdb.com/games/[slug])
+
+[Short summary in plain text or "No summary available."]
+
+• **Rating**: [rating]/100 ([rating_count] reviews) or "Not rated"
+• **Platforms**: [comma-separated]
+• **Genres**: [comma-separated]
+• **Developer**: [developer names or "Unknown"]
+
+Handle null values gracefully."""
+
+
+@mcp.prompt()
+def game_details(game_name: str) -> str:
+    """Prompt template for detailed game information."""
+    return f"""Get comprehensive details for '{game_name}':
+
+1. Search for game ID using search_games - obtain 5 results, pick the most relevant one based on review counts and ratings (fields: id,slug,name,alternative_names.name,first_release_date,rating,rating_count).
+2. Fetch full details with get_game_details (fields: id,slug,name,rating,rating_count,total_rating,total_rating_count,aggregated_rating,aggregated_rating_count,hypes,follows,first_release_date,platforms.name,genres.name,game_modes.name,themes.name,player_perspectives.name,status,summary,storyline,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,category,franchise.name,collection.name,game_engines.name,dlcs.name,expansions.name,expanded_games.name,remasters.name,remasters.first_release_date,remakes.name,remakes.first_release_datesimilar_games.name,similar_games.rating)
+3. Structure output:
+
+# [Name] ([Year])
+
+https://www.igdb.com/games/[slug]
+
+IGDB rating: [rating]/100 ([rating_count] reviews)
+
+## Core Info
+- Release: [first_release_date as YYYY-MM-DD]
+- Platforms: [comma-separated]
+- Genres: [comma-separated]
+- Modes: [comma-separated]
+- Themes: [comma-separated]
+- Perspectives: [comma-separated]
+- Developers: [developer names or "Unknown"]
+- Publishers: [publisher names or "Unknown"]
+
+## Description
+[Summary and storyline in plain text or "No description available."]
+
+## Metadata
+- ID: [id]
+- Category: [category]
+- Franchise: 
+- Collection: 
+- Engine: [game engine names]
+- Popularity: follows, hypes
+
+## Related
+- DLCs: [dlc names]
+- Expansions: [expansion names]
+- Remasters: [remaster names] ([remaster first_release_date as YYYY-MM-DD] or "TBA")
+- Remakes: [remake names] ([remake first_release_date as YYYY-MM-DD] or "TBA")
+
+## Similar games
+Top 5 [similar_games] with name, year, rating sorted by their index in similar_games.
+
+Show "N/A" for missing data."""
+
+
+@mcp.prompt()
+def most_anticipated() -> str:
+    """Finds the most anticipated upcoming games based on user hypes on IGDB."""
+    return """Top most anticipated upcoming games:
+
+1. Use the get_most_anticipated_games tool:
+    - Required fields: id,slug,name,hypes,first_release_date,platforms.name,genres.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,status
+    - Limit: 10
+2. Format results as:
+
+## 🎮 [Name] ([first_release_date])
+
+[Link](https://www.igdb.com/games/[slug])
+
+• **Hypes**: [hypes]
+• **Platforms**: [comma-separated]
+• **Genres**: [comma-separated]
+• **Developer**: [developer names or "Unknown"]
+
+3. Include statistics:
+   • Hype analysis (average, highest, median)
+   • Platform/genre distribution
+   • Release timeline breakdown (next 3 months / 6 months / 1 year / TBA)
+   • Development status breakdown if available
+
+The tool automatically filters for future releases or TBA games with significant hype."""
 
 
 def run_server():

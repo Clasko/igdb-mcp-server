@@ -17,3 +17,12 @@ wheels/
 
 # AI
 .claude
+.gemini
+.vscode
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Linting and formatting
+.ruff_cache/
