@@ -80,7 +80,7 @@ Start exploring with these example prompts:
 - "Find games with the most hype right now"
 
 🎯 **Advanced Queries**
-- "Find soulslike games on Steam with 85+ ratings"
+- "Find games similar to Skyrim with a rating of 85 or higher"
 - "List all games by Larian Studios"
 - "Show upcoming Silent Hill and Resident Evil games"
 
