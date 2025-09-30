@@ -2,6 +2,7 @@
 
 Access the IGDB (Internet Game Database) API through Model Context Protocol (MCP)
 
+[![smithery badge](https://smithery.ai/badge/@bielacki/igdb-mcp-server)](https://smithery.ai/server/@bielacki/igdb-mcp-server)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green)](https://modelcontextprotocol.io)
 [![FastMCP](https://img.shields.io/badge/FastMCP-Powered-orange)](https://github.com/jlowin/fastmcp)
@@ -30,10 +31,6 @@ The IGDB MCP Server provides seamless access to the Internet Game Database (IGDB
 
 ## Quick Start
 
-### Prerequisites
-- [uv](https://github.com/astral-sh/uv) installed
-- MCP-compatible client (Claude Desktop, Cursor, Copilot, or others)
-
 ### Get IGDB Credentials
 1. Create a [Twitch account](https://www.twitch.tv) (if you don't have one)
 2. Go to [Twitch Developer Console](https://dev.twitch.tv/console) → Register Your Application
@@ -41,7 +38,17 @@ The IGDB MCP Server provides seamless access to the Internet Game Database (IGDB
 
 📖 [Full IGDB authentication guide](https://api-docs.igdb.com/#account-creation)
 
-### Configure Your MCP Client
+### Option A: install via Smithery
+
+To install igdb-mcp-server automatically via [Smithery](https://smithery.ai/server/@bielacki/igdb-mcp-server):
+
+```bash
+npx -y @smithery/cli install @bielacki/igdb-mcp-server
+```
+
+### Option B: install with uvx
+
+Install [uv](https://github.com/astral-sh/uv).
 
 Add this to your MCP client's configuration:
 
@@ -60,7 +67,7 @@ Add this to your MCP client's configuration:
 }
 ```
 
-### Start Exploring
+## Start Exploring
 
 Start exploring with these example prompts:
 
@@ -146,6 +153,7 @@ Ensure your MCP client config includes:
 - IGDB API by [IGDB.com](https://www.igdb.com)
 - MCP protocol by Anthropic
 - Built with [FastMCP](https://github.com/jlowin/fastmcp)
+- Published on [Smithery](https://smithery.ai)
 
 ---
 
