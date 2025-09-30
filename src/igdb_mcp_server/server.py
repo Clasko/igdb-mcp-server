@@ -129,12 +129,15 @@ class IGDBClient:
         await self.http_client.aclose()
 
 
-def get_igdb_client(settings=None) -> IGDBClient:
+def get_igdb_client(ctx: Optional[Context] = None) -> IGDBClient:
     """Get or create the IGDB client singleton."""
     global _igdb_client
 
     if "_igdb_client" not in globals():
         # Get credentials from environment variables or Smithery settings
+        # Check if context has session_config (Smithery mode)
+        settings = getattr(ctx, 'session_config', None) if ctx else None
+
         client_id = os.getenv("IGDB_CLIENT_ID") or (settings.IGDB_CLIENT_ID if settings else None)
         client_secret = os.getenv("IGDB_CLIENT_SECRET") or (settings.IGDB_CLIENT_SECRET if settings else None)
 
@@ -177,7 +180,7 @@ async def search_games(
     Returns:
         List of games matching the search criteria
     """
-    igdb_client = get_igdb_client(ctx.session_config)
+    igdb_client = get_igdb_client(ctx)
 
     search_query = f'search "{query}"; fields {fields}; limit {limit};'
     return await igdb_client.make_request("games", search_query)
@@ -207,7 +210,7 @@ async def get_game_details(
     Returns:
         Detailed information about the game
     """
-    igdb_client = get_igdb_client(ctx.session_config)
+    igdb_client = get_igdb_client(ctx)
 
     query = f"fields {fields}; where id = {game_id};"
     results = await igdb_client.make_request("games", query)
@@ -249,7 +252,7 @@ async def get_most_anticipated_games(
     Returns:
         List of most anticipated games sorted by hype count
     """
-    igdb_client = get_igdb_client(ctx.session_config)
+    igdb_client = get_igdb_client(ctx)
 
     # Get current timestamp
     current_timestamp = int(time.time())
@@ -300,7 +303,7 @@ async def custom_query(
         endpoint: "games"
         query: "fields name,rating; where rating > 90; sort rating desc; limit 5;"
     """
-    igdb_client = get_igdb_client(ctx.session_config)
+    igdb_client = get_igdb_client(ctx)
 
     return await igdb_client.make_request(endpoint, query)
 
