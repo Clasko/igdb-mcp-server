@@ -17,12 +17,10 @@ from typing import Optional, Dict, Any, List, Annotated
 # Configuration schema for Smithery
 class Settings(BaseModel):
     """Configuration for IGDB MCP Server."""
-    IGDB_CLIENT_ID: Optional[str] = Field(
-        None,
+    IGDB_CLIENT_ID: str = Field(
         description="Your IGDB Client ID. Get it from https://dev.twitch.tv/console"
     )
-    IGDB_CLIENT_SECRET: Optional[str] = Field(
-        None,
+    IGDB_CLIENT_SECRET: str = Field(
         description="Your IGDB Client Secret. Get it from https://dev.twitch.tv/console"
     )
 
