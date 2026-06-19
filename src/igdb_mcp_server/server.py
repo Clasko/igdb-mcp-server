@@ -561,7 +561,7 @@ The tool automatically filters for future releases or TBA games with significant
 
 def run_server():
     """Main entry point for the server."""
-    mcp.run(transport="stdio")
+    mcp.run(transport="http", host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":
